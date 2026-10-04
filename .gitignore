@@ -1,0 +1,21 @@
+# Dependências e build
+node_modules/
+dist/
+
+# Segredos
+.env
+.env.*
+!.env.example
+
+# Seus dados pessoais (histórico de escuta)
+*.parquet
+*.csv
+!sample.csv
+s0ucient.csv
+scrobbles.parquet
+
+# Sistema e editor
+.DS_Store
+Thumbs.db
+.vscode/
+*.log
