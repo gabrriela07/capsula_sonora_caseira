@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { LucideIcon } from 'lucide-react';
 import { ArrowDownRight, ArrowUpRight, Minus, Sparkles } from 'lucide-react';
 import { compactBR, percentChange } from '../../lib/format';
@@ -38,7 +39,34 @@ export function KpiCard({ label, value, detail, current, previous, icon: Icon, a
     setPosition({ left, top: below ? rect.bottom + 10 : rect.top - 10, below });
   }
 
-  return <article
+  const tooltip = position && typeof document !== 'undefined' ? createPortal(<div
+    id={tooltipId}
+    role="tooltip"
+    className={`tooltip-surface pointer-events-none fixed z-[9999] w-[292px] max-w-[calc(100vw-24px)] -translate-x-1/2 ${position.below ? '' : '-translate-y-full'}`}
+    style={{ left: position.left, top: position.top }}
+  >
+    <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+      <span className="rounded-lg bg-white/5 p-2"><Icon className={`h-4 w-4 ${color}`} /></span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-bold uppercase tracking-[.13em] text-zinc-400">{label}</p>
+        <p className={`mt-0.5 text-xl font-extrabold ${color}`}>{value}</p>
+      </div>
+      <Sparkles className="h-4 w-4 text-white/20" />
+    </div>
+    <div className="mt-3 space-y-3">
+      <div>
+        <div className="mb-1 flex justify-between text-[11px] text-zinc-400"><span>Período atual</span><b className="text-white">{compactBR.format(current)}</b></div>
+        <div className="h-1.5 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-slime" style={{ width: `${Math.max(3, current / max * 100)}%` }} /></div>
+      </div>
+      <div>
+        <div className="mb-1 flex justify-between text-[11px] text-zinc-400"><span>Período anterior</span><b className="text-white">{compactBR.format(previous)}</b></div>
+        <div className="h-1.5 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-zinc-500" style={{ width: `${Math.max(3, previous / max * 100)}%` }} /></div>
+      </div>
+    </div>
+    <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">Variação calculada contra o intervalo imediatamente anterior, com a mesma duração.</p>
+  </div>, document.body) : null;
+
+  return <><article
     className={`panel group relative min-w-0 animate-fade-up overflow-visible transition duration-300 hover:-translate-y-1 hover:border-white/20 ${glow}`}
     tabIndex={0}
     aria-describedby={tooltipId}
@@ -63,31 +91,5 @@ export function KpiCard({ label, value, detail, current, previous, icon: Icon, a
       </span>
     </div>
 
-    {position && <div
-      id={tooltipId}
-      role="tooltip"
-      className={`tooltip-surface pointer-events-none fixed z-[80] w-[292px] max-w-[calc(100vw-24px)] -translate-x-1/2 ${position.below ? '' : '-translate-y-full'}`}
-      style={{ left: position.left, top: position.top }}
-    >
-      <div className="flex items-center gap-2 border-b border-white/10 pb-3">
-        <span className="rounded-lg bg-white/5 p-2"><Icon className={`h-4 w-4 ${color}`} /></span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-bold uppercase tracking-[.13em] text-zinc-400">{label}</p>
-          <p className={`mt-0.5 text-xl font-extrabold ${color}`}>{value}</p>
-        </div>
-        <Sparkles className="h-4 w-4 text-white/20" />
-      </div>
-      <div className="mt-3 space-y-3">
-        <div>
-          <div className="mb-1 flex justify-between text-[11px] text-zinc-400"><span>Período atual</span><b className="text-white">{compactBR.format(current)}</b></div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-slime" style={{ width: `${Math.max(3, current / max * 100)}%` }} /></div>
-        </div>
-        <div>
-          <div className="mb-1 flex justify-between text-[11px] text-zinc-400"><span>Período anterior</span><b className="text-white">{compactBR.format(previous)}</b></div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-zinc-500" style={{ width: `${Math.max(3, previous / max * 100)}%` }} /></div>
-        </div>
-      </div>
-      <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">Variação calculada contra o intervalo imediatamente anterior, com a mesma duração.</p>
-    </div>}
-  </article>;
+  </article>{tooltip}</>;
 }

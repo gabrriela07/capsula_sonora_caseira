@@ -225,7 +225,7 @@ export function GlobalFilters() {
       </div>
 
       <p className="mt-4 text-xs text-zinc-500">
-        Os atalhos usam a data mais recente do arquivo ({brDate(profile.maxDate)}). Você pode combinar meses não consecutivos ou ajustar o intervalo manualmente.
+        Data atual: ({brDate(profile.maxDate)})
       </p>
     </>}
   </section>;

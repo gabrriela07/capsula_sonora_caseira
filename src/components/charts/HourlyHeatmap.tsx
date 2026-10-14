@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { HeatCell, HeatmapMode } from '../../types';
 import { compactBR } from '../../lib/format';
 import { ChartEmpty } from './ChartEmpty';
@@ -63,7 +64,19 @@ export function HourlyHeatmap({ data, hasDuration, mode = 'week' }: { data: Heat
   const toneClass = { lime: 'bg-slime', pink: 'bg-petal', yellow: 'bg-banana', muted: 'bg-zinc-500' };
   const columns = 'grid-cols-[42px_repeat(24,minmax(22px,1fr))]';
 
-  return <div className="overflow-x-auto pb-2" onMouseLeave={() => setHover(null)} onScroll={() => setHover(null)}>
+  const tooltip = hover && detail && typeof document !== 'undefined' ? createPortal(<div
+    className={`pointer-events-none fixed z-[9999] w-72 max-w-[calc(100vw-24px)] -translate-x-1/2 rounded-2xl border border-white/10 bg-[#232323]/95 p-3.5 text-left shadow-[0_18px_40px_rgba(0,0,0,.5)] backdrop-blur-md ${hover.below ? '' : '-translate-y-full'}`}
+    style={{ left: Math.min(Math.max(hover.x, 156), window.innerWidth - 156), top: hover.y }}
+  >
+    <div className="flex items-baseline justify-between gap-2 border-b border-white/10 pb-2">
+      <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">{detail.row.label} · {hover.hour}h–{(hover.hour + 1) % 24}h</span>
+      <span className="text-[11px] text-zinc-500">{((detail.value / total) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% do total</span>
+    </div>
+    <p className="mt-2 text-2xl font-extrabold text-slime">{formatValue(detail.value)}</p>
+    <ul className="mt-2 space-y-1.5">{detail.lines.map((line) => <li key={line.text} className="flex items-start gap-2 text-xs leading-snug text-zinc-200"><i className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${toneClass[line.tone]}`} />{line.text}</li>)}</ul>
+  </div>, document.body) : null;
+
+  return <><div className="overflow-x-auto pb-2" onMouseLeave={() => setHover(null)} onScroll={() => setHover(null)}>
     <div className="min-w-[720px]">
       <div className={`mb-2 grid ${columns} gap-1`}><span />{Array.from({ length: 24 }, (_, hour) => <span key={hour} className="text-center text-[10px] font-semibold text-zinc-200">{hour % 2 === 0 ? `${hour}h` : ''}</span>)}</div>
       <div className="space-y-1">{rows.map((row) => <div key={row.index} className={`grid ${columns} gap-1`}>
@@ -86,16 +99,5 @@ export function HourlyHeatmap({ data, hasDuration, mode = 'week' }: { data: Heat
       </div>)}</div>
       <div className="mt-3 flex items-center justify-end gap-1 text-[10px] text-zinc-300">menos {Array.from({ length: 5 }, (_, i) => <span key={i} className="h-3 w-3 rounded-[3px]" style={{ backgroundColor: `rgba(163,230,53,${.08 + i * .23})` }} />)} mais</div>
     </div>
-    {hover && detail && <div
-      className={`pointer-events-none fixed z-[80] w-72 max-w-[calc(100vw-24px)] -translate-x-1/2 rounded-2xl border border-white/10 bg-[#232323]/95 p-3.5 text-left shadow-[0_18px_40px_rgba(0,0,0,.5)] backdrop-blur-md ${hover.below ? '' : '-translate-y-full'}`}
-      style={{ left: Math.min(Math.max(hover.x, 156), window.innerWidth - 156), top: hover.y }}
-    >
-      <div className="flex items-baseline justify-between gap-2 border-b border-white/10 pb-2">
-        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">{detail.row.label} · {hover.hour}h–{(hover.hour + 1) % 24}h</span>
-        <span className="text-[11px] text-zinc-500">{((detail.value / total) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% do total</span>
-      </div>
-      <p className="mt-2 text-2xl font-extrabold text-slime">{formatValue(detail.value)}</p>
-      <ul className="mt-2 space-y-1.5">{detail.lines.map((line) => <li key={line.text} className="flex items-start gap-2 text-xs leading-snug text-zinc-200"><i className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${toneClass[line.tone]}`} />{line.text}</li>)}</ul>
-    </div>}
-  </div>;
+  </div>{tooltip}</>;
 }

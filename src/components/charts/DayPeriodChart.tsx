@@ -1,3 +1,4 @@
+import { useId, useState } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import type { DayPeriod } from '../../types';
 import { CHART_COLORS } from '../../lib/chartTheme';
@@ -5,75 +6,54 @@ import { compactBR } from '../../lib/format';
 import { ChartEmpty } from './ChartEmpty';
 
 const ORDER = ['Madrugada', 'Manhã', 'Tarde', 'Noite'];
-// Tons escurecidos usados na "lateral" do donut para dar profundidade
-const SHADOWS = ['#4d6b19', '#6b2f53', '#7d7633', '#3f6110', '#7a5269', '#7f7445'];
-const RADIAN = Math.PI / 180;
-
-interface LabelProps {
-  cx?: number | string;
-  cy?: number | string;
-  midAngle?: number;
-  innerRadius?: number | string;
-  outerRadius?: number | string;
-  percent?: number;
-}
-
-/** Rótulo de % centralizado na fatia. */
-function renderPercent(props: unknown) {
-  const raw = props as LabelProps;
-  const [cx, cy, midAngle, innerRadius, outerRadius, percent] = [raw.cx, raw.cy, raw.midAngle, raw.innerRadius, raw.outerRadius, raw.percent].map((value) => Number(value ?? 0));
-  if (percent < 0.03) return null;
-  const radius = innerRadius + (outerRadius - innerRadius) / 2;
-  const x = cx + radius * Math.cos(-midAngle * RADIAN);
-  const y = cy + radius * Math.sin(-midAngle * RADIAN);
-  return <text x={x} y={y} fill="#171717" textAnchor="middle" dominantBaseline="central" fontSize={12} fontWeight={800}>
-    {`${Math.round(percent * 100)}%`}
-  </text>;
-}
 
 export function DayPeriodChart({ data, hasDuration }: { data: DayPeriod[]; hasDuration: boolean }) {
+  const gradientId = useId().replace(/:/g, '');
+  const [active, setActive] = useState(0);
   if (!data.length) return <ChartEmpty />;
   const sorted = [...data].sort((a, b) => ORDER.indexOf(a.name) - ORDER.indexOf(b.name));
   const total = sorted.reduce((sum, item) => sum + item.value, 0) || 1;
   const normalized = sorted.map((item) => ({ ...item, display: hasDuration ? item.value / 3_600_000 : item.value, share: item.value / total }));
+  const selected = normalized[Math.min(active, normalized.length - 1)];
   const formatValue = (value: number) => hasDuration
-    ? `${value.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} horas`
+    ? `${value.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} h`
     : `${compactBR.format(value)} plays`;
-  const pieProps = { data: normalized, dataKey: 'display', nameKey: 'name', innerRadius: '50%', outerRadius: '80%', paddingAngle: 3, stroke: 'none', startAngle: 90, endAngle: -270, isAnimationActive: false } as const;
 
   return <div>
     <div className="relative h-64">
-      {/* Camada inferior deslocada: simula a espessura do donut */}
-      <div className="pointer-events-none absolute inset-0 translate-y-[9px]" aria-hidden="true">
-        <ResponsiveContainer width="100%" height="100%"><PieChart>
-          <Pie {...pieProps}>{normalized.map((item, index) => <Cell key={item.name} fill={SHADOWS[index % SHADOWS.length]} />)}</Pie>
-        </PieChart></ResponsiveContainer>
-      </div>
-      <div className="absolute inset-0" style={{ filter: 'drop-shadow(0 10px 14px rgba(0,0,0,.45))' }}>
-        <ResponsiveContainer width="100%" height="100%"><PieChart>
-          <defs>{CHART_COLORS.map((color, index) => <radialGradient key={color} id={`dayPeriod3d-${index}`} cx="50%" cy="35%" r="75%">
-            <stop offset="0%" stopColor="#ffffff" stopOpacity={0.35} />
-            <stop offset="45%" stopColor={color} stopOpacity={1} />
-            <stop offset="100%" stopColor={color} stopOpacity={0.85} />
-          </radialGradient>)}</defs>
-          <Pie {...pieProps} label={renderPercent} labelLine={false}>
-            {normalized.map((item, index) => <Cell key={item.name} fill={`url(#dayPeriod3d-${index % CHART_COLORS.length})`} />)}
-          </Pie>
-          <Tooltip
-            cursor={false}
-            content={({ active, payload }) => {
-              const item = active && payload?.length ? payload[0].payload as (typeof normalized)[number] : null;
-              if (!item) return null;
-              return <div className="rounded-xl border border-white/10 bg-[#232323] px-3.5 py-2.5 shadow-[0_12px_32px_rgba(0,0,0,.45)]">
-                <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">{item.name}</p>
-                <p className="mt-1 text-lg font-extrabold text-white">{formatValue(item.display)}</p>
-                <p className="text-xs text-slime">{(item.share * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% da sua escuta</p>
-              </div>;
-            }}
-          />
-        </PieChart></ResponsiveContainer>
+      <ResponsiveContainer width="100%" height="100%"><PieChart>
+        <defs>{CHART_COLORS.map((color, index) => <linearGradient key={color} id={`${gradientId}-${index}`} x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor={color} stopOpacity={1} /><stop offset="100%" stopColor={color} stopOpacity={0.68} /></linearGradient>)}</defs>
+        <Pie
+          data={normalized}
+          dataKey="display"
+          nameKey="name"
+          innerRadius="59%"
+          outerRadius="84%"
+          paddingAngle={5}
+          cornerRadius={12}
+          stroke="rgba(23,23,23,.7)"
+          strokeWidth={3}
+          startAngle={90}
+          endAngle={-270}
+          isAnimationActive
+          animationDuration={950}
+          animationEasing="ease-out"
+          onMouseEnter={(_, index) => setActive(index)}
+        >
+          {normalized.map((item, index) => <Cell key={item.name} fill={`url(#${gradientId}-${index % CHART_COLORS.length})`} opacity={active === index ? 1 : 0.72} style={{ filter: active === index ? `drop-shadow(0 7px 10px ${CHART_COLORS[index % CHART_COLORS.length]}35)` : 'none', transition: 'opacity .25s ease, filter .25s ease' }} />)}
+        </Pie>
+        <Tooltip cursor={false} content={({ active: tooltipActive, payload }) => {
+          const item = tooltipActive && payload?.length ? payload[0].payload as (typeof normalized)[number] : null;
+          if (!item) return null;
+          return <div className="tooltip-surface px-3.5 py-2.5"><p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">{item.name}</p><p className="mt-1 text-lg font-extrabold text-white">{formatValue(item.display)}</p><p className="text-xs text-slime">{(item.share * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% da sua escuta</p></div>;
+        }} />
+      </PieChart></ResponsiveContainer>
+      <div className="pointer-events-none absolute left-1/2 top-1/2 flex h-28 w-28 -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full border border-white/[.06] bg-carbon/35 text-center shadow-inner backdrop-blur-sm">
+        <span className="text-[10px] font-bold uppercase tracking-[.14em] text-zinc-500">{selected.name}</span>
+        <b className="mt-1 text-2xl font-black text-white">{Math.round(selected.share * 100)}%</b>
+        <span className="mt-0.5 text-[10px] text-zinc-500">{formatValue(selected.display)}</span>
       </div>
     </div>
-    <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-1">{normalized.map((item, index) => <span key={item.name} className="flex items-center gap-1.5 text-xs text-zinc-300"><i className="h-2 w-2 rounded-full" style={{ background: CHART_COLORS[index % CHART_COLORS.length] }} />{item.name} <b className="text-white">{Math.round(item.share * 100)}%</b></span>)}</div>
+    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{normalized.map((item, index) => <button type="button" key={item.name} onMouseEnter={() => setActive(index)} onFocus={() => setActive(index)} className={`flex items-center justify-between rounded-xl border px-2.5 py-2 text-left text-xs transition ${active === index ? 'border-white/15 bg-white/[.06] text-white' : 'border-transparent bg-white/[.025] text-zinc-400 hover:bg-white/[.05]'}`}><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ background: CHART_COLORS[index % CHART_COLORS.length] }} />{item.name}</span><b>{Math.round(item.share * 100)}%</b></button>)}</div>
   </div>;
 }

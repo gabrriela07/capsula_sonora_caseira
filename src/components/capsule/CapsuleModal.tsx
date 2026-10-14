@@ -3,25 +3,10 @@ import { Check, Clipboard, Download, Eye, EyeOff, ImagePlus, LoaderCircle, X } f
 import { toBlob, toPng } from 'html-to-image';
 import type { DashboardData, Filters } from '../../types';
 import { capsulePeriod, safeFileName } from '../../lib/format';
+import { resolveArtwork } from '../../lib/artwork';
 import { CapsuleCard } from './CapsuleCard';
 
 type CoverMode = 'auto' | 'manual' | 'procedural';
-
-/**
- * Baixa a imagem e converte para data URL. Assim o html-to-image consegue
- * embutir a capa no PNG sem problema de CORS no momento da exportação.
- */
-async function toDataUrl(url: string): Promise<string> {
-  const response = await fetch(url, { mode: 'cors' });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const blob = await response.blob();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
 
 export function CapsuleModal({ open, onClose, data, filters, hasDuration }: { open: boolean; onClose: () => void; data: DashboardData; filters: Filters; hasDuration: boolean }) {
   const cardRef = useRef<HTMLDivElement>(null);
@@ -35,20 +20,19 @@ export function CapsuleModal({ open, onClose, data, filters, hasDuration }: { op
   const period = capsulePeriod(filters);
   // Capa automática: imagem associada ao artista mais ouvido do período
   const topArtist = data.topArtists[0];
-  const topArtistImage = topArtist?.imageUrl ?? '';
 
   useEffect(() => { if (!open) setStatus(''); }, [open]);
   useEffect(() => () => { if (cover?.startsWith('blob:')) URL.revokeObjectURL(cover); }, [cover]);
   useEffect(() => {
     if (!open) return;
-    if (!topArtistImage) { setAutoCover(null); setAutoState('failed'); return; }
+    if (!topArtist) { setAutoCover(null); setAutoState('failed'); return; }
     let cancelled = false;
     setAutoState('loading');
-    toDataUrl(topArtistImage)
+    resolveArtwork(topArtist, 'artist')
       .then((dataUrl) => { if (!cancelled) { setAutoCover(dataUrl); setAutoState('ready'); } })
       .catch(() => { if (!cancelled) { setAutoCover(null); setAutoState('failed'); } });
     return () => { cancelled = true; };
-  }, [open, topArtistImage]);
+  }, [open, topArtist?.name, topArtist?.imageUrl, topArtist?.mbid]);
 
   if (!open) return null;
 

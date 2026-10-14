@@ -21,6 +21,7 @@ import type {
   HeatmapMode,
   Kpis,
   LoyalArtist,
+  ListeningTransition,
   RankedItem,
   SchemaColumn,
   TimePoint,
@@ -357,23 +358,52 @@ class LocalAnalytics {
     `);
     return rows.map((row) => ({ name: String(row.name), value: asNumber(row.value), plays: asNumber(row.plays) }));
   }
+  /** Trocas de artista mais recorrentes, limitadas a sessões com até seis horas de intervalo. */
+  private async transitions(filters: Filters): Promise<ListeningTransition[]> {
+    const rows = await this.query(`
+      WITH ordered AS (
+        SELECT played_at, artist,
+          LAG(artist) OVER (ORDER BY played_at, artist, track) AS previous_artist,
+          LAG(played_at) OVER (ORDER BY played_at, artist, track) AS previous_at
+        FROM history ${this.where(filters)}
+      )
+      SELECT previous_artist AS from_artist, artist AS to_artist,
+        COUNT(*) AS transition_count,
+        AVG(DATE_DIFF('minute', previous_at, played_at)) AS avg_gap_minutes
+      FROM ordered
+      WHERE previous_artist IS NOT NULL
+        AND previous_artist <> artist
+        AND played_at >= previous_at
+        AND played_at <= previous_at + INTERVAL 6 HOUR
+      GROUP BY 1, 2
+      ORDER BY transition_count DESC, avg_gap_minutes ASC, from_artist, to_artist
+      LIMIT 12
+    `);
+    return rows.map((row) => ({
+      from: String(row.from_artist),
+      to: String(row.to_artist),
+      count: asNumber(row.transition_count),
+      avgGapMinutes: asNumber(row.avg_gap_minutes),
+    }));
+  }
   async dashboard(filters: Filters, granularity: Granularity, bumpGranularity: BumpGranularity = 'month', heatMode: HeatmapMode = 'week'): Promise<DashboardData> {
     const days = Math.max(1, differenceInCalendarDays(parseISO(filters.endDate), parseISO(filters.startDate)) + 1);
     const previousEnd = subDays(parseISO(filters.startDate), 1);
     const previous = { startDate: format(subDays(previousEnd, days - 1), 'yyyy-MM-dd'), endDate: format(previousEnd, 'yyyy-MM-dd') };
     const [
       currentKpis, previousKpis, topArtists, topTracks, topAlbums,
-      evolution, bump, cumulative, patterns, discovery, genres,
+      evolution, bump, cumulative, patterns, discovery, genres, transitions,
     ] = await Promise.all([
       this.kpis(filters), this.kpis(filters, previous), this.top(filters, 'artists'), this.top(filters, 'tracks'), this.top(filters, 'albums'),
       this.evolution(filters, granularity), this.bump(filters, bumpGranularity), this.cumulative(filters), this.patterns(filters, heatMode), this.discovery(filters, granularity),
       this.genres(filters),
+      this.transitions(filters),
     ]);
     return {
       kpis: { ...currentKpis, previous: previousKpis },
       topArtists, topTracks, topAlbums, evolution, bump, cumulative,
       heatmap: patterns[0], calendar: patterns[1], dayPeriods: patterns[2], discovery: discovery[0], loyal: discovery[1],
-      genres,
+      genres, transitions,
     };
   }
   async filterOptions(selection: { artist?: string; album?: string } = {}): Promise<{ artists: FilterOption[]; albums: FilterOption[]; months: string[] }> {

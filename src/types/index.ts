@@ -92,6 +92,12 @@ export interface FilterOption {
   value: string;
   count: number;
 }
+export interface ListeningTransition {
+  from: string;
+  to: string;
+  count: number;
+  avgGapMinutes: number;
+}
 export type Granularity = 'day' | 'week' | 'month' | 'year';
 export type BumpGranularity = 'day' | 'week' | 'month';
 export type HeatmapMode = 'day' | 'week' | 'month' | 'weekend';
@@ -111,4 +117,5 @@ export interface DashboardData {
   discovery: DiscoveryPoint[];
   loyal: LoyalArtist[];
   genres: GenreItem[];
+  transitions: ListeningTransition[];
 }
