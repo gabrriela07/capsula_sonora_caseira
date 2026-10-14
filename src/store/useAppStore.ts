@@ -15,7 +15,6 @@ const emptyFilters: Filters = {
   artist: '',
   album: '',
   yearMonth: '',
-  minSeconds: 30,
 };
 
 export const useAppStore = create<AppState>((set) => ({

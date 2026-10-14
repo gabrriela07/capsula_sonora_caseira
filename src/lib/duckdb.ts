@@ -5,6 +5,7 @@ import duckdbEhWasm from '@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url';
 import duckdbEhWorker from '@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url';
 import { differenceInCalendarDays, format, parseISO, subDays } from 'date-fns';
 import type {
+  BumpGranularity,
   BumpPoint,
   CalendarCell,
   ColumnMapping,
@@ -14,8 +15,10 @@ import type {
   DiscoveryPoint,
   FilterOption,
   Filters,
+  GenreItem,
   Granularity,
   HeatCell,
+  HeatmapMode,
   Kpis,
   LoyalArtist,
   RankedItem,
@@ -23,7 +26,6 @@ import type {
   TimePoint,
 } from '../types';
 import { quoteIdentifier, quoteLiteral, toDateString } from './sql';
-
 const LOCAL_BUNDLES: duckdb.DuckDBBundles = {
   mvp: {
     mainModule: duckdbMvpWasm,
@@ -34,28 +36,28 @@ const LOCAL_BUNDLES: duckdb.DuckDBBundles = {
     mainWorker: duckdbEhWorker,
   },
 };
-
 type Row = Record<string, unknown>;
-
 function plainRows(table: { toArray(): Array<{ toJSON(): Row }> }): Row[] {
   return table.toArray().map((row) => {
     const source = row.toJSON();
     return Object.fromEntries(Object.entries(source).map(([key, value]) => [key, typeof value === 'bigint' ? Number(value) : value]));
   });
 }
-
 function asNumber(value: unknown): number {
   if (typeof value === 'bigint') return Number(value);
   return Number(value ?? 0);
 }
-
+/** Junta uma condição extra a um WHERE que pode estar vazio. */
+function andWhere(where: string, condition: string): string {
+  return where ? `${where} AND ${condition}` : `WHERE ${condition}`;
+}
 class LocalAnalytics {
   private dbPromise: Promise<duckdb.AsyncDuckDB> | null = null;
   private sourceSql = '';
   private fileName = '';
   private hasDuration = false;
+  private durationEstimated = false;
   private sourceColumns = new Set<string>();
-
   private async db(): Promise<duckdb.AsyncDuckDB> {
     if (!this.dbPromise) {
       this.dbPromise = (async () => {
@@ -70,7 +72,6 @@ class LocalAnalytics {
     }
     return this.dbPromise;
   }
-
   private async query(sql: string): Promise<Row[]> {
     const database = await this.db();
     const connection = await database.connect();
@@ -80,7 +81,6 @@ class LocalAnalytics {
       await connection.close();
     }
   }
-
   async inspectFile(file: File): Promise<SchemaColumn[]> {
     const extension = file.name.split('.').pop()?.toLowerCase();
     if (extension !== 'csv' && extension !== 'parquet') {
@@ -96,10 +96,12 @@ class LocalAnalytics {
     this.sourceColumns = new Set(rows.map((row) => String(row.column_name).toLowerCase()));
     return rows.map((row) => ({ name: String(row.column_name), type: String(row.column_type) }));
   }
-
   async normalize(mapping: ColumnMapping, originalName: string): Promise<DataProfile> {
     if (!this.sourceSql) throw new Error('Carregue um arquivo antes de confirmar o mapeamento.');
-    this.hasDuration = Boolean(mapping.duration);
+    // Os dados do Last.fm chegam com duration_ms vindo do track.getInfo
+    const durationColumn = mapping.duration || (this.sourceColumns.has('duration_ms') ? 'duration_ms' : '');
+    this.hasDuration = Boolean(durationColumn);
+    this.durationEstimated = this.hasDuration && this.sourceColumns.has('duration_estimated');
     const timestamp = quoteIdentifier(mapping.timestamp);
     const playedAt = mapping.timestamp.toLowerCase().trim() === 'date_1'
       ? `TRY_STRPTIME(CAST(${timestamp} AS VARCHAR), '%d %b %Y %H:%M')`
@@ -107,8 +109,8 @@ class LocalAnalytics {
     const artist = quoteIdentifier(mapping.artist);
     const track = quoteIdentifier(mapping.track);
     const album = mapping.album ? `COALESCE(NULLIF(TRIM(CAST(${quoteIdentifier(mapping.album)} AS VARCHAR)), ''), 'Sem álbum')` : `'Sem álbum'`;
-    const duration = mapping.duration
-      ? `GREATEST(COALESCE(TRY_CAST(${quoteIdentifier(mapping.duration)} AS BIGINT), 0), 0)`
+    const duration = durationColumn
+      ? `GREATEST(COALESCE(TRY_CAST(${quoteIdentifier(durationColumn)} AS BIGINT), 0), 0)`
       : '0::BIGINT';
     const optionalText = (name: string) => this.sourceColumns.has(name)
       ? `COALESCE(NULLIF(TRIM(CAST(${quoteIdentifier(name)} AS VARCHAR)), ''), '')`
@@ -118,10 +120,10 @@ class LocalAnalytics {
     const trackMbid = optionalText('track_mbid');
     const imageUrl = optionalText('image_url');
     const lastFmUrl = optionalText('lastfm_url');
+    const genre = optionalText('genre');
     const streamable = this.sourceColumns.has('streamable')
       ? `COALESCE(TRY_CAST(${quoteIdentifier('streamable')} AS BOOLEAN), false)`
       : 'false';
-
     await this.query(`CREATE OR REPLACE VIEW mapped_history AS
       SELECT
         ${playedAt} AS played_at,
@@ -134,15 +136,15 @@ class LocalAnalytics {
         ${trackMbid} AS track_mbid,
         ${imageUrl} AS image_url,
         ${lastFmUrl} AS lastfm_url,
+        ${genre} AS genre,
         ${streamable} AS streamable
       FROM ${this.sourceSql}`);
     await this.query('DROP TABLE IF EXISTS history');
     await this.query(`CREATE TABLE history AS
       SELECT DISTINCT played_at, artist, track, album, duration_ms,
-        artist_mbid, album_mbid, track_mbid, image_url, lastfm_url, streamable
+        artist_mbid, album_mbid, track_mbid, image_url, lastfm_url, genre, streamable
       FROM mapped_history
       WHERE played_at IS NOT NULL AND artist <> '' AND track <> ''`);
-
     const [stats] = await this.query(`
       SELECT
         (SELECT COUNT(*) FROM mapped_history) AS row_count,
@@ -156,7 +158,6 @@ class LocalAnalytics {
     const validRows = asNumber(stats.valid_rows);
     const mappedValid = asNumber(stats.mapped_valid);
     if (!validRows) throw new Error('Nenhuma linha válida restou após o mapeamento. Verifique principalmente a coluna de data/hora.');
-
     const columns = await this.query(`DESCRIBE SELECT * FROM ${this.sourceSql}`);
     return {
       fileName: originalName,
@@ -166,10 +167,11 @@ class LocalAnalytics {
       minDate: toDateString(stats.min_date),
       maxDate: toDateString(stats.max_date),
       hasDuration: this.hasDuration,
+      durationEstimated: this.durationEstimated,
+      hasGenres: this.sourceColumns.has('genre'),
       columns: columns.map((row) => ({ name: String(row.column_name), type: String(row.column_type) })),
     };
   }
-
   private where(filters: Filters, override?: { startDate: string; endDate: string }, includeDates = true): string {
     const conditions: string[] = [];
     const startDate = override?.startDate ?? filters.startDate;
@@ -178,15 +180,15 @@ class LocalAnalytics {
     if (includeDates && endDate) conditions.push(`played_at < (${quoteLiteral(endDate)}::DATE + INTERVAL 1 DAY)`);
     if (filters.artist) conditions.push(`artist = ${quoteLiteral(filters.artist)}`);
     if (filters.album) conditions.push(`album = ${quoteLiteral(filters.album)}`);
-    if (filters.yearMonth && !override) conditions.push(`strftime(played_at, '%Y-%m') = ${quoteLiteral(filters.yearMonth)}`);
-    if (this.hasDuration) conditions.push(`duration_ms >= ${Math.max(0, Math.round(filters.minSeconds * 1000))}`);
+    if (filters.yearMonth && !override) {
+      const selectedMonths = filters.yearMonth.split(',').map((month) => month.trim()).filter(Boolean);
+      if (selectedMonths.length) conditions.push(`strftime(played_at, '%Y-%m') IN (${selectedMonths.map(quoteLiteral).join(', ')})`);
+    }
     return conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   }
-
   private metric(): string {
     return this.hasDuration ? 'duration_ms' : '1';
   }
-
   private async kpis(filters: Filters, override?: { startDate: string; endDate: string }): Promise<Kpis> {
     const rows = await this.query(`
       WITH filtered AS (
@@ -220,16 +222,17 @@ class LocalAnalytics {
       longestStreak: asNumber(row.longest_streak),
     };
   }
-
   private async top(filters: Filters, kind: 'artists' | 'tracks' | 'albums'): Promise<RankedItem[]> {
     const metric = this.metric();
+    // Imagem: a capa mais recente com URL preenchida
+    const image = `arg_max(image_url, played_at) FILTER (WHERE image_url <> '') AS image_url`;
     const select = kind === 'artists'
-      ? `artist AS name, NULL AS artist, MAX(image_url) AS image_url, MAX(lastfm_url) AS lastfm_url, MAX(artist_mbid) AS mbid`
+      ? `artist AS name, NULL AS artist, ${image}, MAX(lastfm_url) AS lastfm_url, MAX(artist_mbid) AS mbid`
       : kind === 'tracks'
-        ? `track AS name, artist, MAX(image_url) AS image_url, MAX(lastfm_url) AS lastfm_url, MAX(track_mbid) AS mbid`
-        : `album AS name, NULL AS artist, MAX(image_url) AS image_url, MAX(lastfm_url) AS lastfm_url, MAX(album_mbid) AS mbid`;
-    const group = kind === 'tracks' ? 'track, artist' : kind === 'artists' ? 'artist' : 'album';
-    const extra = kind === 'albums' ? `${this.where(filters)} ${this.where(filters) ? 'AND' : 'WHERE'} album <> 'Sem álbum'` : this.where(filters);
+        ? `track AS name, artist, ${image}, MAX(lastfm_url) AS lastfm_url, MAX(track_mbid) AS mbid`
+        : `album AS name, artist, ${image}, MAX(lastfm_url) AS lastfm_url, MAX(album_mbid) AS mbid`;
+    const group = kind === 'tracks' ? 'track, artist' : kind === 'artists' ? 'artist' : 'album, artist';
+    const extra = kind === 'albums' ? andWhere(this.where(filters), `album <> 'Sem álbum'`) : this.where(filters);
     const rows = await this.query(`
       SELECT ${select}, SUM(${metric}) AS value, COUNT(*) AS plays
       FROM history ${extra}
@@ -247,7 +250,6 @@ class LocalAnalytics {
       mbid: row.mbid ? String(row.mbid) : undefined,
     }));
   }
-
   private async evolution(filters: Filters, granularity: Granularity): Promise<TimePoint[]> {
     const unit = { day: 'day', week: 'week', month: 'month', year: 'year' }[granularity];
     const rows = await this.query(`
@@ -257,9 +259,9 @@ class LocalAnalytics {
     `);
     return rows.map((row) => ({ period: String(row.period).slice(0, 10), value: asNumber(row.value) }));
   }
-
-  private async bump(filters: Filters, granularity: Granularity): Promise<BumpPoint[]> {
-    const unit = granularity === 'day' ? 'week' : granularity;
+  /** Ranking em movimento com granularidade própria (dia, semana ou mês). */
+  private async bump(filters: Filters, granularity: BumpGranularity): Promise<BumpPoint[]> {
+    const unit = { day: 'day', week: 'week', month: 'month' }[granularity];
     const rows = await this.query(`
       WITH filtered AS (SELECT * FROM history ${this.where(filters)}),
       leaders AS (
@@ -278,7 +280,6 @@ class LocalAnalytics {
       period: String(row.period).slice(0, 10), artist: String(row.artist), rank: asNumber(row.rank), value: asNumber(row.value),
     }));
   }
-
   private async cumulative(filters: Filters): Promise<TimePoint[]> {
     const rows = await this.query(`
       WITH monthly AS (
@@ -289,10 +290,19 @@ class LocalAnalytics {
     `);
     return rows.map((row) => ({ period: String(row.period).slice(0, 10), value: asNumber(row.value), cumulative: asNumber(row.cumulative) }));
   }
-
-  private async patterns(filters: Filters): Promise<[HeatCell[], CalendarCell[], DayPeriod[]]> {
+  /**
+   * Linhas do mapa de calor por modo:
+   * week = Seg–Dom · weekend = Sáb e Dom · day = todos os dias somados · month = Jan–Dez.
+   */
+  private heatmapSql(filters: Filters, mode: HeatmapMode): string {
+    const base = this.where(filters);
+    const row = mode === 'day' ? '1' : mode === 'month' ? 'EXTRACT(MONTH FROM played_at)::INTEGER' : 'EXTRACT(ISODOW FROM played_at)::INTEGER';
+    const where = mode === 'weekend' ? andWhere(base, 'EXTRACT(ISODOW FROM played_at) IN (6, 7)') : base;
+    return `SELECT ${row} AS weekday, EXTRACT(HOUR FROM played_at)::INTEGER AS hour, SUM(${this.metric()}) AS value FROM history ${where} GROUP BY 1,2 ORDER BY 1,2`;
+  }
+  private async patterns(filters: Filters, heatMode: HeatmapMode): Promise<[HeatCell[], CalendarCell[], DayPeriod[]]> {
     const [heatRows, calendarRows, periodRows] = await Promise.all([
-      this.query(`SELECT EXTRACT(ISODOW FROM played_at)::INTEGER AS weekday, EXTRACT(HOUR FROM played_at)::INTEGER AS hour, SUM(${this.metric()}) AS value FROM history ${this.where(filters)} GROUP BY 1,2 ORDER BY 1,2`),
+      this.query(this.heatmapSql(filters, heatMode)),
       this.query(`SELECT CAST(played_at AS DATE)::VARCHAR AS day, SUM(${this.metric()}) AS value, COUNT(*) AS plays FROM history ${this.where(filters)} GROUP BY 1 ORDER BY 1`),
       this.query(`
         SELECT CASE
@@ -310,7 +320,6 @@ class LocalAnalytics {
       periodRows.map((row) => ({ name: String(row.name), value: asNumber(row.value) })),
     ];
   }
-
   private async discovery(filters: Filters, granularity: Granularity): Promise<[DiscoveryPoint[], LoyalArtist[]]> {
     const unit = granularity === 'day' ? 'month' : granularity;
     const start = quoteLiteral(filters.startDate);
@@ -338,29 +347,43 @@ class LocalAnalytics {
       loyalRows.map((row) => ({ artist: String(row.artist), years: asNumber(row.years), firstYear: asNumber(row.first_year), lastYear: asNumber(row.last_year) })),
     ];
   }
-
-  async dashboard(filters: Filters, granularity: Granularity): Promise<DashboardData> {
+  /** Volume por gênero/tag do Last.fm (tag principal de cada artista). */
+  private async genres(filters: Filters): Promise<GenreItem[]> {
+    if (!this.sourceColumns.has('genre')) return [];
+    const rows = await this.query(`
+      SELECT genre AS name, SUM(${this.metric()}) AS value, COUNT(*) AS plays
+      FROM history ${andWhere(this.where(filters), `genre <> ''`)}
+      GROUP BY 1 ORDER BY value DESC, name ASC LIMIT 12
+    `);
+    return rows.map((row) => ({ name: String(row.name), value: asNumber(row.value), plays: asNumber(row.plays) }));
+  }
+  async dashboard(filters: Filters, granularity: Granularity, bumpGranularity: BumpGranularity = 'month', heatMode: HeatmapMode = 'week'): Promise<DashboardData> {
     const days = Math.max(1, differenceInCalendarDays(parseISO(filters.endDate), parseISO(filters.startDate)) + 1);
     const previousEnd = subDays(parseISO(filters.startDate), 1);
     const previous = { startDate: format(subDays(previousEnd, days - 1), 'yyyy-MM-dd'), endDate: format(previousEnd, 'yyyy-MM-dd') };
     const [
       currentKpis, previousKpis, topArtists, topTracks, topAlbums,
-      evolution, bump, cumulative, patterns, discovery,
+      evolution, bump, cumulative, patterns, discovery, genres,
     ] = await Promise.all([
       this.kpis(filters), this.kpis(filters, previous), this.top(filters, 'artists'), this.top(filters, 'tracks'), this.top(filters, 'albums'),
-      this.evolution(filters, granularity), this.bump(filters, granularity), this.cumulative(filters), this.patterns(filters), this.discovery(filters, granularity),
+      this.evolution(filters, granularity), this.bump(filters, bumpGranularity), this.cumulative(filters), this.patterns(filters, heatMode), this.discovery(filters, granularity),
+      this.genres(filters),
     ]);
     return {
       kpis: { ...currentKpis, previous: previousKpis },
       topArtists, topTracks, topAlbums, evolution, bump, cumulative,
       heatmap: patterns[0], calendar: patterns[1], dayPeriods: patterns[2], discovery: discovery[0], loyal: discovery[1],
+      genres,
     };
   }
-
-  async filterOptions(): Promise<{ artists: FilterOption[]; albums: FilterOption[]; months: string[] }> {
+  async filterOptions(selection: { artist?: string; album?: string } = {}): Promise<{ artists: FilterOption[]; albums: FilterOption[]; months: string[] }> {
+    const artistWhere = selection.album ? `WHERE album = ${quoteLiteral(selection.album)}` : '';
+    const albumConditions = [`album <> 'Sem álbum'`];
+    if (selection.artist) albumConditions.push(`artist = ${quoteLiteral(selection.artist)}`);
+    const albumWhere = `WHERE ${albumConditions.join(' AND ')}`;
     const [artists, albums, months] = await Promise.all([
-      this.query(`SELECT artist AS value, COUNT(*) AS count FROM history GROUP BY artist ORDER BY count DESC LIMIT 500`),
-      this.query(`SELECT album AS value, COUNT(*) AS count FROM history WHERE album <> 'Sem álbum' GROUP BY album ORDER BY count DESC LIMIT 500`),
+      this.query(`SELECT artist AS value, COUNT(*) AS count FROM history ${artistWhere} GROUP BY artist ORDER BY count DESC, value ASC LIMIT 500`),
+      this.query(`SELECT album AS value, COUNT(*) AS count FROM history ${albumWhere} GROUP BY album ORDER BY count DESC, value ASC LIMIT 500`),
       this.query(`SELECT DISTINCT strftime(played_at, '%Y-%m') AS month FROM history ORDER BY month DESC`),
     ]);
     return {
@@ -370,5 +393,4 @@ class LocalAnalytics {
     };
   }
 }
-
 export const analytics = new LocalAnalytics();

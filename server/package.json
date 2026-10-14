@@ -1,0 +1,21 @@
+{
+  "name": "capsula-sonora-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Sincroniza o histórico do Last.fm no MySQL e serve o painel da Cápsula Sonora.",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "sync": "node src/sync-cli.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "capsula-sonora-local": "file:..",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mysql2": "^3.11.5"
+  }
+}
