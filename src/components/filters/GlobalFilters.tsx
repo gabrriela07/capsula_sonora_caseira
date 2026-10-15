@@ -54,19 +54,21 @@ export function GlobalFilters() {
   }, [profile]);
 
   if (!profile) return null;
+  // Referência não nula estável para funções internas (function declarations não herdam o narrowing)
+  const currentProfile = profile;
 
-  const anchor = parseISO(profile.maxDate);
+  const anchor = parseISO(currentProfile.maxDate);
   const selectedMonths = filters.yearMonth.split(',').filter(Boolean).sort();
   const availableYears = months.map((month) => Number(month.slice(0, 4))).filter(Number.isFinite);
-  const minYear = availableYears.length ? Math.min(...availableYears) : parseISO(profile.minDate).getFullYear();
-  const maxYear = availableYears.length ? Math.max(...availableYears) : parseISO(profile.maxDate).getFullYear();
+  const minYear = availableYears.length ? Math.min(...availableYears) : parseISO(currentProfile.minDate).getFullYear();
+  const maxYear = availableYears.length ? Math.max(...availableYears) : parseISO(currentProfile.maxDate).getFullYear();
 
   const presets = [
-    { label: 'Último mês', start: format(subDays(anchor, 29), 'yyyy-MM-dd'), end: profile.maxDate },
-    { label: 'Últimos 3 meses', start: format(subMonths(anchor, 3), 'yyyy-MM-dd'), end: profile.maxDate },
+    { label: 'Último mês', start: format(subDays(anchor, 29), 'yyyy-MM-dd'), end: currentProfile.maxDate },
+    { label: 'Últimos 3 meses', start: format(subMonths(anchor, 3), 'yyyy-MM-dd'), end: currentProfile.maxDate },
     { label: 'Este ano', start: format(startOfYear(anchor), 'yyyy-MM-dd'), end: format(endOfYear(anchor) > anchor ? anchor : endOfYear(anchor), 'yyyy-MM-dd') },
     { label: 'Ano passado', start: format(startOfYear(subYears(anchor, 1)), 'yyyy-MM-dd'), end: format(endOfYear(subYears(anchor, 1)), 'yyyy-MM-dd') },
-    { label: 'Todo o período', start: profile.minDate, end: profile.maxDate },
+    { label: 'Todo o período', start: currentProfile.minDate, end: currentProfile.maxDate },
   ];
 
   function applyPreset(start: string, end: string) {
@@ -78,17 +80,15 @@ export function GlobalFilters() {
     const next = selectedMonths.includes(value)
       ? selectedMonths.filter((month) => month !== value)
       : [...selectedMonths, value].sort();
-
     if (!next.length) {
       setFilters({ yearMonth: '' });
       return;
     }
-
     const first = parseISO(`${next[0]}-01`);
     const last = parseISO(`${next[next.length - 1]}-01`);
     const start = format(startOfMonth(first), 'yyyy-MM-dd');
     const calculatedEnd = format(endOfMonth(last), 'yyyy-MM-dd');
-    const end = calculatedEnd > profile.maxDate ? profile.maxDate : calculatedEnd;
+    const end = calculatedEnd > currentProfile.maxDate ? currentProfile.maxDate : calculatedEnd;
     setFilters({ yearMonth: next.join(','), startDate: start, endDate: end });
   }
 
@@ -100,7 +100,7 @@ export function GlobalFilters() {
   ].filter(Boolean) as string[];
 
   const periodLabel = selectedMonths.length
-    ? selectedMonths.map((month) => format(parseISO(`${month}-01`), "MMM/yy", { locale: ptBR })).join(' · ')
+    ? selectedMonths.map((month) => format(parseISO(`${month}-01`), 'MMM/yy', { locale: ptBR })).join(' · ')
     : 'Escolher meses';
 
   return <section className="panel relative z-20 overflow-visible">
@@ -116,7 +116,7 @@ export function GlobalFilters() {
       <div className="flex items-center gap-4">
         <button
           className="flex items-center gap-1.5 text-xs font-semibold text-zinc-400 transition hover:text-white"
-          onClick={() => setFilters({ startDate: profile.minDate, endDate: profile.maxDate, artist: '', album: '', yearMonth: '' })}
+          onClick={() => setFilters({ startDate: currentProfile.minDate, endDate: currentProfile.maxDate, artist: '', album: '', yearMonth: '' })}
         >
           <RotateCcw className="h-3.5 w-3.5" /> Limpar
         </button>
@@ -125,7 +125,6 @@ export function GlobalFilters() {
         </button>
       </div>
     </div>
-
     {!collapsed && <>
       <div className="mb-5 flex flex-wrap gap-2">
         {presets.map((preset) => {
@@ -135,7 +134,6 @@ export function GlobalFilters() {
           </button>;
         })}
       </div>
-
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr]">
         <div className="relative">
           <span className="label">Período</span>
@@ -150,7 +148,6 @@ export function GlobalFilters() {
             <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-bold text-zinc-400">multi</span>
             <ChevronDown className={`h-4 w-4 shrink-0 text-zinc-500 transition ${monthPickerOpen ? 'rotate-180' : ''}`} />
           </button>
-
           {monthPickerOpen && <div className="absolute left-0 top-[72px] z-50 w-full min-w-[310px] rounded-3xl border border-white/10 bg-[#242426]/98 p-4 shadow-[0_24px_70px_rgba(0,0,0,.65)] backdrop-blur-xl sm:w-[430px]">
             <div className="mb-4 flex items-center justify-between">
               <button type="button" className="calendar-nav" disabled={visibleYear <= minYear} onClick={() => setVisibleYear((year) => year - 1)} aria-label="Ano anterior">
@@ -186,25 +183,23 @@ export function GlobalFilters() {
               <button type="button" className="rounded-full bg-slime px-4 py-2 text-xs font-extrabold text-carbon" onClick={() => setMonthPickerOpen(false)}>Aplicar</button>
             </div>
           </div>}
-
           <div className="mt-3 grid grid-cols-2 gap-2">
             <label>
               <span className="sr-only">Data inicial</span>
               <div className="relative">
                 <CalendarDays className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-zinc-500" />
-                <input type="date" min={profile.minDate} max={filters.endDate || profile.maxDate} value={filters.startDate} onChange={(event) => setFilters({ startDate: event.target.value, yearMonth: '' })} className="field pl-9" />
+                <input type="date" min={currentProfile.minDate} max={filters.endDate || currentProfile.maxDate} value={filters.startDate} onChange={(event) => setFilters({ startDate: event.target.value, yearMonth: '' })} className="field pl-9" />
               </div>
             </label>
             <label>
               <span className="sr-only">Data final</span>
               <div className="relative">
                 <CalendarDays className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-zinc-500" />
-                <input type="date" min={filters.startDate || profile.minDate} max={profile.maxDate} value={filters.endDate} onChange={(event) => setFilters({ endDate: event.target.value, yearMonth: '' })} className="field pl-9" />
+                <input type="date" min={filters.startDate || currentProfile.minDate} max={currentProfile.maxDate} value={filters.endDate} onChange={(event) => setFilters({ endDate: event.target.value, yearMonth: '' })} className="field pl-9" />
               </div>
             </label>
           </div>
         </div>
-
         <label>
           <span className="label">Artista</span>
           <select className="field" value={filters.artist} onChange={(event) => setFilters({ artist: event.target.value })}>
@@ -213,7 +208,6 @@ export function GlobalFilters() {
           </select>
           <span className="mt-2 block text-[11px] text-zinc-500">A lista respeita o álbum selecionado.</span>
         </label>
-
         <label>
           <span className="label">Álbum</span>
           <select className="field" value={filters.album} onChange={(event) => setFilters({ album: event.target.value })}>
@@ -223,9 +217,8 @@ export function GlobalFilters() {
           <span className="mt-2 block text-[11px] text-zinc-500">A lista respeita o artista selecionado.</span>
         </label>
       </div>
-
       <p className="mt-4 text-xs text-zinc-500">
-        Data atual: ({brDate(profile.maxDate)})
+        Data atual: ({brDate(currentProfile.maxDate)})
       </p>
     </>}
   </section>;
