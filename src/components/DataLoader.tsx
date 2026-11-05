@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react';
-import { Database, Download, Hourglass, LockKeyhole, Bug, Radio, FileUp, Ghost, UserRound, RotateCcw, ChevronRight } from 'lucide-react';
+import { Database, Download, Hourglass, LockKeyhole, Bug, Radio, FileUp, Ghost, UserRound, RotateCcw, ChevronRight, Trash2 } from 'lucide-react';
 import { analytics } from '../lib/duckdb';
 import { detectMapping, requiredMappingComplete } from '../lib/columnDetection';
 import { baixarScrobbles, buscarDuracoes, buscarGeneros, chaveArtista, chaveFaixa, LASTFM_ENV_USER, type Scrobble } from '../lib/lastfm';
@@ -65,6 +65,47 @@ async function fetchServerHistory(signal: AbortSignal, onBytes: (bytes: number) 
     onBytes(bytes);
   }
   return new File(chunks, 'lastfm-servidor.csv', { type: 'text/csv' });
+}
+
+/* ---------- Cache do histórico no navegador ----------
+ * O CSV baixado do servidor fica guardado no Cache Storage, identificado por
+ * usuário + total de scrobbles + data da última sincronização.
+ * Enquanto nada mudar no servidor, recarregar a página (inclusive o reload do Vite
+ * ao editar um texto) reaproveita o arquivo local em vez de baixar tudo de novo.
+ */
+const HISTORY_CACHE = 'capsula-historico-v1';
+const cachePrefix = (user: string) => `/__capsula-cache/history/${encodeURIComponent(user)}/`;
+const cacheKey = (status: ServerStatus) => `${cachePrefix(status.user)}${status.scrobbles}-${status.lastSyncAt ?? 'sem-sync'}.csv`;
+const cacheDisponivel = () => typeof window !== 'undefined' && 'caches' in window;
+
+async function readCachedHistory(status: ServerStatus): Promise<File | null> {
+  if (!cacheDisponivel()) return null;
+  try {
+    const cache = await caches.open(HISTORY_CACHE);
+    const res = await cache.match(cacheKey(status));
+    if (!res) return null;
+    return new File([await res.blob()], 'lastfm-servidor.csv', { type: 'text/csv' });
+  } catch {
+    return null;
+  }
+}
+
+async function writeCachedHistory(status: ServerStatus, file: File) {
+  if (!cacheDisponivel()) return;
+  try {
+    const cache = await caches.open(HISTORY_CACHE);
+    // Remove versões antigas do mesmo usuário para não acumular espaço
+    const antigas = (await cache.keys()).filter((req) => new URL(req.url).pathname.startsWith(cachePrefix(status.user)));
+    await Promise.all(antigas.map((req) => cache.delete(req)));
+    await cache.put(cacheKey(status), new Response(file, { headers: { 'content-type': 'text/csv' } }));
+  } catch {
+    /* sem espaço ou navegador sem suporte: segue sem cache */
+  }
+}
+
+/** Limpa o cache local (útil se algo parecer desatualizado). */
+async function clearHistoryCache() {
+  if (cacheDisponivel()) await caches.delete(HISTORY_CACHE).catch(() => false);
 }
 
 const megabytes = (bytes: number) => `${(bytes / 1_048_576).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} MB`;
@@ -240,7 +281,7 @@ export function DataLoader() {
       if (status.scrobbles > 0 && !serverAutoLoadDone) {
         serverAutoLoadDone = true;
         setBooting(false);
-        void loadFromServer();
+        void loadFromServer(status);
         return;
       }
       setBooting(false);
@@ -278,14 +319,21 @@ export function DataLoader() {
     }
   }
 
-  async function loadFromServer() {
+  async function loadFromServer(status: ServerStatus | null = server) {
     setMessage('');
     setLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      setProgress({ step: 1, steps: 2, label: 'Baixando histórico do servidor', done: 0, total: 0 });
-      const file = await fetchServerHistory(controller.signal, (bytes) => setProgress({ step: 1, steps: 2, label: `Baixando histórico do servidor · ${megabytes(bytes)}`, done: 0, total: 0 }));
+      // 1) Tenta o cache local: mesmo usuário, mesmos scrobbles, mesma sincronização
+      let file = status ? await readCachedHistory(status) : null;
+      if (file) {
+        setProgress({ step: 1, steps: 2, label: `Histórico em cache · ${megabytes(file.size)}`, done: 0, total: 0 });
+      } else {
+        setProgress({ step: 1, steps: 2, label: 'Baixando histórico do servidor', done: 0, total: 0 });
+        file = await fetchServerHistory(controller.signal, (bytes) => setProgress({ step: 1, steps: 2, label: `Baixando histórico do servidor · ${megabytes(bytes)}`, done: 0, total: 0 }));
+        if (status) void writeCachedHistory(status, file);
+      }
       setProgress({ step: 2, steps: 2, label: 'Preparando as reproduções no DuckDB', done: 0, total: 0 });
       const profile = await prepareFile(file);
       setProfile(profile);
@@ -415,6 +463,10 @@ export function DataLoader() {
               {server.lastError && <p className="mt-2 text-xs text-red-300">Última sincronização falhou: {server.lastError}</p>}
               <div className="mt-5 flex items-center gap-3 text-xs uppercase tracking-[0.2em] text-zinc-600"><span className="h-px flex-1 bg-white/10" />ou<span className="h-px flex-1 bg-white/10" /></div>
             </div>}
+
+            {server && server.scrobbles > 0 && cacheDisponivel() && <button type="button" onClick={() => void clearHistoryCache().then(() => setMessage('Cache local limpo. O próximo carregamento baixa o histórico de novo.'))} className="-mt-2 mb-4 flex items-center gap-1.5 text-[11px] font-semibold text-zinc-500 transition hover:text-white">
+              <Trash2 className="h-3 w-3" /> Limpar cache local
+            </button>}
 
             {!server && <button type="button" onClick={() => setCheckKey((key) => key + 1)} className="mb-5 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-zinc-400 transition hover:text-white">
               <RotateCcw className="h-3.5 w-3.5" /> Servidor indisponível · tentar novamente
