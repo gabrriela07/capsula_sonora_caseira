@@ -74,7 +74,7 @@ function maiorImagem(images) {
 }
 
 /** Converte a resposta do user.getRecentTracks em linhas da tabela scrobbles. */
-function converter(tracks) {
+function converter(tracks, user) {
   return lista(tracks)
     .filter((t) => t.date && !t['@attr']?.nowplaying) // ignora "ouvindo agora"
     .map((t) => {
@@ -82,7 +82,7 @@ function converter(tracks) {
       const artist = corta(t.artist?.['#text'], 512);
       const track = corta(t.name, 512);
       return [
-        sha1(`${uts}|${artist}|${track}`),
+        sha1(`${user}|${uts}|${artist}|${track}`),
         uts,
         dataLocal(uts),
         artist,
@@ -96,6 +96,7 @@ function converter(tracks) {
         t.streamable === '1' ? 1 : 0,
         chaveFaixa(artist, track),
         chaveArtista(artist),
+        user,
       ];
     })
     .filter((row) => row[3] && row[7]);
@@ -103,16 +104,31 @@ function converter(tracks) {
 
 export const COLUNAS_SCROBBLE = [
   'scrobble_key', 'uts', 'played_at_local', 'artist', 'artist_mbid', 'album', 'album_mbid',
-  'track', 'track_mbid', 'image_url', 'lastfm_url', 'streamable', 'track_key', 'artist_key',
+  'track', 'track_mbid', 'image_url', 'lastfm_url', 'streamable', 'track_key', 'artist_key', 'lastfm_user',
 ];
 
 /** Uma página do histórico (200 itens) dentro da janela from–to. */
-export async function paginaRecentes(page, from, to) {
-  const params = { method: 'user.getrecenttracks', user: config.lastfm.user, limit: '200', page: String(page), to: String(to) };
+export async function paginaRecentes(user, page, from, to) {
+  const params = { method: 'user.getrecenttracks', user, limit: '200', page: String(page), to: String(to) };
   if (from) params.from = String(from);
   const data = await requisitar(params);
   const bloco = data.recenttracks ?? {};
-  return { totalPages: Number(bloco['@attr']?.totalPages ?? 0), linhas: converter(bloco.track) };
+  return { totalPages: Number(bloco['@attr']?.totalPages ?? 0), linhas: converter(bloco.track, user) };
+}
+
+/**
+ * Confere se o usuário existe no Last.fm e se o histórico é público.
+ * Retorna { ok: true, name, playcount } ou { ok: false, motivo }.
+ */
+export async function verificarUsuario(user) {
+  try {
+    const data = await requisitar({ method: 'user.getinfo', user });
+    return { ok: true, name: String(data.user?.name ?? user), playcount: Number(data.user?.playcount ?? 0) };
+  } catch (erro) {
+    if (erro instanceof LastFmError && erro.code === 6) return { ok: false, motivo: 'Usuário não encontrado no Last.fm.' };
+    if (erro instanceof LastFmError && erro.code === 17) return { ok: false, motivo: 'O histórico deste usuário é privado no Last.fm.' };
+    throw erro;
+  }
 }
 
 /** Duração cadastrada (ms). null = falha temporária (tentar na próxima sincronização). */

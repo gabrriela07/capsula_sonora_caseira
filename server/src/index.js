@@ -5,9 +5,10 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
 import express from 'express';
-import { config } from './config.js';
+import { config, normalizarUsuario } from './config.js';
 import { db, ensureSchema, getConnection } from './db.js';
-import { carregarUltimaSincronizacao, sincronizar, syncState } from './sync.js';
+import { verificarUsuario } from './lastfm.js';
+import { carregarUltimaSincronizacao, sincronizar, syncStateDe, usuariosConhecidos } from './sync.js';
 
 const app = express();
 const DIST = fileURLToPath(new URL('../../dist/', import.meta.url));
@@ -31,29 +32,88 @@ app.use((req, res, next) => {
   res.status(401).send('Acesso restrito');
 });
 
+/* ---------- Usuário do Last.fm (dinâmico) ---------- */
+
+const USUARIO_VALIDO = /^[a-z0-9_-]{2,32}$/;
+const verificados = new Map(); // user -> { ok, motivo, at }
+const VALIDADE_VERIFICACAO_MS = 6 * 60 * 60_000;
+
+/** Lê ?user=, o cabeçalho X-Lastfm-User ou, na falta deles, o LASTFM_USER padrão. */
+function usuarioDaRequisicao(req) {
+  const user = normalizarUsuario(req.query.user ?? req.headers['x-lastfm-user'] ?? config.lastfm.defaultUser);
+  if (!user) return { erro: 'Informe o usuário do Last.fm (ex.: ?user=seu_usuario).', status: 400, needsUser: true };
+  if (!USUARIO_VALIDO.test(user)) return { erro: 'Usuário do Last.fm inválido.', status: 400, needsUser: true };
+  if (config.lastfm.allowedUsers.length && !config.lastfm.allowedUsers.includes(user)) {
+    return { erro: 'Este usuário não está liberado nesta instalação.', status: 403, needsUser: true };
+  }
+  return { user };
+}
+
+async function totalScrobbles(user) {
+  const [[{ total }]] = await db.query('SELECT COUNT(*) AS total FROM scrobbles WHERE lastfm_user = ?', [user]);
+  return Number(total);
+}
+
+/** Confere no Last.fm (com cache) se o usuário existe e tem histórico público. */
+async function usuarioExiste(user) {
+  const cache = verificados.get(user);
+  if (cache && Date.now() - cache.at < VALIDADE_VERIFICACAO_MS) return cache;
+  const resultado = { ...(await verificarUsuario(user)), at: Date.now() };
+  verificados.set(user, resultado);
+  return resultado;
+}
+
+/** Garante que o usuário exista e dispara a primeira carga quando ainda não há histórico. */
+async function prepararUsuario(user) {
+  const total = await totalScrobbles(user);
+  if (total > 0) return { ok: true, total };
+  const verificacao = await usuarioExiste(user);
+  if (!verificacao.ok) return verificacao;
+  if (!syncStateDe(user).running) sincronizar(user).catch(() => {});
+  return { ok: true, total };
+}
+
 /* ---------- API ---------- */
-app.get('/api/status', async (_req, res) => {
+
+app.get('/api/config', (_req, res) => {
+  res.json({ defaultUser: config.lastfm.defaultUser || null, restricted: config.lastfm.allowedUsers.length > 0 });
+});
+
+app.get('/api/status', async (req, res) => {
+  const alvo = usuarioDaRequisicao(req);
+  if (alvo.erro) return res.status(alvo.status).json({ error: alvo.erro, needsUser: alvo.needsUser });
   try {
+    const preparo = await prepararUsuario(alvo.user);
+    if (!preparo.ok) return res.status(404).json({ error: preparo.motivo, needsUser: true });
     const [[contagem]] = await db.query(`SELECT
-      (SELECT COUNT(*) FROM scrobbles) AS scrobbles,
-      (SELECT COUNT(*) FROM track_durations) AS durations,
-      (SELECT COUNT(*) FROM artist_genres) AS genres`);
+      (SELECT COUNT(*) FROM scrobbles WHERE lastfm_user = ?) AS scrobbles,
+      (SELECT COUNT(DISTINCT d.track_key) FROM scrobbles s JOIN track_durations d ON d.track_key = s.track_key WHERE s.lastfm_user = ?) AS durations,
+      (SELECT COUNT(DISTINCT g.artist_key) FROM scrobbles s JOIN artist_genres g ON g.artist_key = s.artist_key WHERE s.lastfm_user = ?) AS genres`,
+    [alvo.user, alvo.user, alvo.user]);
     res.json({
-      user: config.lastfm.user,
+      user: alvo.user,
       scrobbles: Number(contagem.scrobbles),
       durations: Number(contagem.durations),
       genres: Number(contagem.genres),
-      ...syncState,
+      ...syncStateDe(alvo.user),
     });
   } catch (erro) {
     res.status(500).json({ error: erro instanceof Error ? erro.message : 'Erro no banco' });
   }
 });
 
-app.post('/api/sync', (_req, res) => {
-  if (syncState.running) return res.status(409).json({ message: 'Sincronização já em andamento.' });
-  sincronizar().catch(() => {}); // roda em segundo plano; o erro fica em syncState.lastError
-  res.status(202).json({ message: 'Sincronização iniciada.' });
+app.post('/api/sync', async (req, res) => {
+  const alvo = usuarioDaRequisicao(req);
+  if (alvo.erro) return res.status(alvo.status).json({ error: alvo.erro, needsUser: alvo.needsUser });
+  try {
+    const verificacao = await usuarioExiste(alvo.user);
+    if (!verificacao.ok) return res.status(404).json({ error: verificacao.motivo, needsUser: true });
+  } catch (erro) {
+    return res.status(502).json({ error: erro instanceof Error ? erro.message : 'Falha ao consultar o Last.fm' });
+  }
+  if (syncStateDe(alvo.user).running) return res.status(409).json({ message: 'Sincronização já em andamento.' });
+  sincronizar(alvo.user).catch(() => {}); // roda em segundo plano; o erro fica em lastError
+  res.status(202).json({ message: 'Sincronização iniciada.', user: alvo.user });
 });
 
 /** Mediana das durações conhecidas: usada para músicas sem duração no Last.fm. */
@@ -78,6 +138,8 @@ const celula = (valor) => {
  * (date_1 = '%d %b %Y %H:%M'). Enviado em streaming e compactado com gzip.
  */
 app.get('/api/history.csv', async (req, res) => {
+  const alvo = usuarioDaRequisicao(req);
+  if (alvo.erro) return res.status(alvo.status).json({ error: alvo.erro, needsUser: alvo.needsUser });
   let conexao;
   try {
     const fallback = await duracaoMediana();
@@ -91,7 +153,8 @@ app.get('/api/history.csv', async (req, res) => {
       FROM scrobbles s
       LEFT JOIN track_durations d ON d.track_key = s.track_key
       LEFT JOIN artist_genres g ON g.artist_key = s.artist_key
-      ORDER BY s.uts`, [fallback]).stream({ highWaterMark: 1000 });
+      WHERE s.lastfm_user = ?
+      ORDER BY s.uts`, [fallback, alvo.user]).stream({ highWaterMark: 1000 });
 
     let cabecalhoEnviado = false;
     const paraCsv = new Transform({
@@ -151,6 +214,10 @@ app.listen(config.port, '0.0.0.0', () => {
   console.log(`[servidor] Cápsula Sonora em http://localhost:${config.port}`);
 });
 
-const rodarSync = () => sincronizar().catch(() => {});
-rodarSync();
-setInterval(rodarSync, config.syncIntervalMinutes * 60_000);
+/** Sincronização periódica: todos os usuários já carregados, um por vez. */
+async function rodarSyncs() {
+  const usuarios = [...new Set([config.lastfm.defaultUser, ...(await usuariosConhecidos())].filter(Boolean))];
+  for (const user of usuarios) await sincronizar(user).catch(() => {});
+}
+rodarSyncs().catch(() => {});
+setInterval(() => { rodarSyncs().catch(() => {}); }, config.syncIntervalMinutes * 60_000);

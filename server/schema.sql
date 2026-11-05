@@ -3,7 +3,7 @@
 -- As tabelas abaixo são criadas automaticamente pelo servidor ao iniciar
 -- (pode rodar manualmente também; todas usam IF NOT EXISTS).
 
--- Um scrobble por linha. A chave é um SHA-1 de uts|artista|música,
+-- Um scrobble por linha. A chave é um SHA-1 de usuário|uts|artista|música,
 -- o que evita o limite de 3072 bytes de índices com textos longos em utf8mb4.
 CREATE TABLE IF NOT EXISTS scrobbles (
   scrobble_key    CHAR(40)      NOT NULL,
@@ -20,7 +20,9 @@ CREATE TABLE IF NOT EXISTS scrobbles (
   streamable      TINYINT(1)    NOT NULL DEFAULT 0,
   track_key       CHAR(40)      NOT NULL,
   artist_key      CHAR(40)      NOT NULL,
+  lastfm_user     VARCHAR(64)   NOT NULL DEFAULT '',
   PRIMARY KEY (scrobble_key),
+  KEY idx_scrobbles_user_uts (lastfm_user, uts),
   KEY idx_scrobbles_uts (uts),
   KEY idx_scrobbles_track_key (track_key),
   KEY idx_scrobbles_artist_key (artist_key)
@@ -55,5 +57,6 @@ CREATE TABLE IF NOT EXISTS sync_log (
   new_genres    INT          NOT NULL DEFAULT 0,
   status        VARCHAR(20)  NOT NULL,
   message       VARCHAR(1024) NULL,
+  lastfm_user   VARCHAR(64)  NOT NULL DEFAULT '',
   PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

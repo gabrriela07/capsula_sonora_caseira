@@ -22,6 +22,7 @@ import { ArtistMap } from './charts/ArtistMap';
 import { ListeningFlow } from './charts/ListeningFlow';
 import { LastFmPage } from './lastfm/LastFmPage';
 import { CapsuleModal } from './capsule/CapsuleModal';
+import { ProjectPage } from './project/ProjectPage';
 
 const topLabels: Record<TopKind, string> = { artists: 'Artistas', tracks: 'Músicas', albums: 'Álbuns' };
 const heatLabels: Record<HeatmapMode, string> = { day: 'Dia', week: 'Semana', month: 'Mês', weekend: 'Fim de semana' };
@@ -55,7 +56,7 @@ export function Dashboard() {
       <GlobalFilters />
       {!profile.hasDuration && <div className="rounded-2xl border border-banana/20 bg-banana/5 px-4 py-3 text-sm text-banana">O arquivo não tem duração mapeada. Rankings, gráficos e comparações usam contagem de reproduções; KPIs de tempo ficam indisponíveis.</div>}
       {error ? <ErrorState message={error} onRetry={() => void retry()} /> : !data ? <LoadingState /> : data.kpis.plays === 0 ? <EmptyState /> : <>
-        {view === 'lastfm' ? <LastFmPage data={data} filters={debouncedFilters} hasDuration={profile.hasDuration} /> : <>
+        {view === 'project' ? <ProjectPage /> : view === 'lastfm' ? <LastFmPage data={data} filters={debouncedFilters} hasDuration={profile.hasDuration} /> : <>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div><p className="text-sm text-zinc-500">Visão geral</p><h2 className="text-2xl font-extrabold tracking-tight">Seu período em números</h2></div>
             <div className="flex items-center gap-3">{loading && data && <span className="animate-pulse text-xs text-slime">Atualizando…</span>}<ComparisonNote /></div>

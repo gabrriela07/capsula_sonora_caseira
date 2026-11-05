@@ -1,9 +1,10 @@
-import { Database, Images, LayoutDashboard, RotateCcw, Sparkles } from 'lucide-react';
+import { Database, FolderKanban, Images, LayoutDashboard, RotateCcw, Sparkles } from 'lucide-react';
 import type { DataProfile } from '../../types';
 import { compactBR } from '../../lib/format';
 import logo from '../../assets/logo.png';
+import { LastFmUserSwitch } from './LastFmUserSwitch';
 
-export type DashboardView = 'dashboard' | 'lastfm';
+export type DashboardView = 'dashboard' | 'lastfm' | 'project';
 
 interface Props {
   profile: DataProfile;
@@ -24,7 +25,6 @@ export function Header({ profile, onCapsule, onReset, capsuleDisabled = false, a
           <p className="flex items-center gap-1.5 truncate text-xs text-zinc-500"><Database className="h-3 w-3" />{profile.fileName} · {compactBR.format(profile.validRows)} linhas</p>
         </div>
       </div>
-
       {onViewChange && <nav className="order-3 flex w-full items-center justify-center rounded-full border border-white/10 bg-black/20 p-1 sm:order-none sm:w-auto" aria-label="Páginas do dashboard">
         <button className={`view-tab flex-1 sm:flex-none ${activeView === 'dashboard' ? 'view-tab-active' : ''}`} onClick={() => onViewChange('dashboard')}>
           <LayoutDashboard className="h-4 w-4" /> Dashboard
@@ -32,9 +32,12 @@ export function Header({ profile, onCapsule, onReset, capsuleDisabled = false, a
         <button className={`view-tab flex-1 sm:flex-none ${activeView === 'lastfm' ? 'view-tab-active' : ''}`} onClick={() => onViewChange('lastfm')}>
           <Images className="h-4 w-4" /> Last.fm one page
         </button>
+        <button className={`view-tab flex-1 sm:flex-none ${activeView === 'project' ? 'view-tab-active' : ''}`} onClick={() => onViewChange('project')}>
+          <FolderKanban className="h-4 w-4" /> Projeto
+        </button>
       </nav>}
-
       <div className="flex shrink-0 items-center gap-2">
+        <LastFmUserSwitch />
         <button className="btn-secondary hidden sm:inline-flex" onClick={onReset} title="Carregar outro arquivo"><RotateCcw className="h-4 w-4" /> Trocar dados</button>
         <button className="btn-primary px-4 py-2.5 text-sm" disabled={capsuleDisabled} onClick={onCapsule}><Sparkles className="h-4 w-4" /> <span className="hidden sm:inline">Gerar </span>Cápsula</button>
       </div>

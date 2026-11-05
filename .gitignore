@@ -2,12 +2,12 @@
 node_modules/
 dist/
 
-# Segredos
+# pass
 .env
 .env.*
 !.env.example
 
-# Seus dados pessoais (histórico de escuta)
+# historico escuta
 *.parquet
 *.csv
 !sample.csv
@@ -19,3 +19,12 @@ scrobbles.parquet
 Thumbs.db
 .vscode/
 *.log
+
+# Cápsula Sonora — nunca versionar credenciais
+.env
+.env.*
+!.env.example
+server/.env
+dist/
+node_modules/
+server/node_modules/

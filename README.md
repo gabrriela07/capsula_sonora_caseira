@@ -1,170 +1,236 @@
-# Cápsula Sonora — análise musical 100% local
+<div align="center">
 
-Um dashboard React para explorar anos de histórico de reprodução e gerar um cartão vertical compartilhável — sem backend, sem conta e sem enviar seus dados musicais para a internet.
+<img src="src/assets/logo.png" alt="Cápsula Sonora" width="120" />
 
-## O que o projeto faz
+# 🎧 Cápsula Sonora
 
-- Abre **CSV e Parquet diretamente no navegador** com DuckDB-WASM.
-- Detecta automaticamente o schema do Extended Streaming History do Spotify e nomes genéricos.
-- Permite confirmar ou corrigir o mapeamento antes de processar os dados.
-- Remove linhas sem data/artista/música e duplicatas exatas após a normalização.
-- Aplica um tempo mínimo por reprodução (30 segundos por padrão).
-- Mantém agregações no DuckDB; não transfere milhões de linhas para o React.
-- Exibe KPIs, rankings, evolução temporal, bump chart, heatmaps, descoberta, fidelidade e comparação com o período anterior.
-- Gera uma Cápsula Sonora em PNG 1080 × 1920, com capa procedural ou foto local, e também pode copiá-la para a área de transferência.
+### Seu histórico do Last.fm transformado em uma cápsula do tempo musical
 
-## Privacidade e funcionamento local
+*Rankings, ritmos, descobertas e conexões entre artistas: tudo o que você ouviu, contado em um painel interativo.*
 
-O arquivo selecionado é registrado diretamente no DuckDB-WASM dentro da aba. Consultas SQL e agregações rodam no navegador; o app não possui endpoints, login, telemetria ou chamadas para um backend. DuckDB-WASM, seus workers e WebAssembly são empacotados pelo Vite e servidos pela própria aplicação — não dependem de CDN em tempo de execução. A tipografia usa a pilha local `Inter`/`system-ui`; quando Inter não estiver instalada, o navegador usa a fonte sans-serif do sistema.
+<br />
 
-> Observação: como em qualquer aplicação web, extensões instaladas no navegador são externas ao controle deste projeto. Para o maior isolamento, execute em um perfil de navegador limpo e mantenha o app em `localhost`.
+![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)
+![Tailwind](https://img.shields.io/badge/Tailwind-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)
+![DuckDB](https://img.shields.io/badge/DuckDB--WASM-FFF000?style=for-the-badge&logo=duckdb&logoColor=black)
+![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-4479A1?style=for-the-badge&logo=mysql&logoColor=white)
+![Last.fm](https://img.shields.io/badge/Last.fm-D51007?style=for-the-badge&logo=lastdotfm&logoColor=white)
 
-## Tecnologias
+<br />
 
-- Vite + React 18 + TypeScript
-- Tailwind CSS
-- DuckDB-WASM para leitura de Parquet/CSV e SQL analítico
-- Recharts para gráficos
-- Zustand para estado global
-- date-fns para datas
-- html-to-image para PNG/clipboard
+[▶️ Ver o vídeo](#-a-cápsula-em-1-minuto) · [✨ Recursos](#-o-que-tem-dentro-da-cápsula) · [🚀 Rodar localmente](#-rodar-localmente) · [☁️ Publicar grátis](#️-publicar-de-graça) · [🔒 Privacidade](#-privacidade)
 
-### Por que DuckDB-WASM?
+</div>
 
-Ele lê Parquet de forma nativa, detecta CSV, faz filtros/`GROUP BY`/funções de janela sem copiar todo o dataset para objetos JavaScript e mantém o processamento na máquina. Isso é mais apropriado para milhões de linhas do que parsers CSV tradicionais seguidos de agregações no React. A tabela normalizada é materializada uma vez para evitar repetir limpeza e deduplicação em cada gráfico.
+---
 
-## Pré-requisitos
+## ▶️ A cápsula em 1 minuto
 
-- Node.js 20 ou mais recente (Node 18.18+ também funciona com as versões fixadas)
-- npm 9+
-- Navegador moderno: Chrome, Edge ou Firefox atualizado
-- Memória suficiente para o arquivo. CSVs muito grandes usam mais memória que Parquet; prefira Parquet quando possível.
+<!--
+  COMO INCLUIR O VÍDEO:
+  1. No GitHub, clique em editar este README (ícone de lápis).
+  2. Arraste o arquivo .mp4 (até 10 MB no plano gratuito) para dentro do editor, nesta linha.
+  3. O GitHub gera um link "https://github.com/user-attachments/assets/..." — deixe-o sozinho na linha.
+  4. Apague este comentário e salve.
+-->
 
-## Instalação e execução
+COLE_AQUI_O_LINK_DO_VIDEO
+
+---
+
+## 🎵 Como funciona
+
+```text
+   🎧 Você ouve música          📡 Last.fm registra         🗄️ Servidor sincroniza        📊 Cápsula Sonora
+  ───────────────────  ──▶  ───────────────────  ──▶  ───────────────────  ──▶  ───────────────────
+   Spotify, Deezer,          cada faixa vira um          scrobbles + durações         análises direto no
+   YouTube Music...          "scrobble"                  + gêneros no MySQL           navegador (DuckDB)
+```
+
+1. **Informe seu usuário do Last.fm** na tela ou direto no link: `https://seu-app/?user=seu_usuario`.
+2. **Na primeira visita**, o servidor baixa seu histórico completo. Quem tem muitos scrobbles espera alguns minutos.
+3. **Daí em diante**, só as músicas novas são buscadas, automaticamente.
+
+> 💡 Não precisa criar conta nem chave de API. Basta ter um perfil **público** no Last.fm.
+
+---
+
+## ✨ O que tem dentro da cápsula
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 📊 Dashboard
+- **KPIs com hover:** tempo ouvido, reproduções, artistas e músicas únicas, dia recorde e maior sequência, com variação contra o período anterior
+- **Seus favoritos:** top 5, 10 ou 20 artistas, músicas e álbuns, com capas
+- **Evolução do tempo** por dia, semana, mês ou ano
+- **Ranking em movimento** dos cinco artistas líderes
+- **Acumulado da jornada**
+
+</td>
+<td width="50%" valign="top">
+
+### 🕐 Ritmos e descobertas
+- **Dia da semana × hora:** mapa de calor de quando você ouve
+- **Períodos do dia:** madrugada, manhã, tarde e noite
+- **Galáxia da sua escuta:** artistas em órbita, por intensidade
+- **Novos artistas** e **assinatura de descoberta**
+- **Artistas mais fiéis** ao longo dos anos
+- **Fluxo da sua escuta:** quem costuma tocar depois de quem
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🖼️ Last.fm one page
+- Mosaico de artistas e álbuns principais com fotos e capas
+- Faixas mais ouvidas
+- Exportação da **página inteira em imagem**
+
+</td>
+<td width="50%" valign="top">
+
+### 💊 Gerar Cápsula
+- Card visual pronto para compartilhar
+- Opção de **remover o logo**
+- **Filtros globais:** calendário com vários meses, atalhos de período e artista e álbum conectados entre si
+
+</td>
+</tr>
+</table>
+
+---
+
+## 🧱 Por baixo do capô
+
+| Camada | Tecnologia | Papel |
+|---|---|---|
+| 🎨 Interface | React · TypeScript · Vite · Tailwind | painel, filtros e páginas |
+| 📈 Gráficos | Recharts | visualizações interativas |
+| 🦆 Análise | DuckDB-WASM | consultas SQL **no próprio navegador** |
+| ⚙️ API | Node.js · Express | sincronização e entrega dos dados |
+| 🗄️ Banco | MySQL | histórico por usuário + cache de durações e gêneros |
+| 🎼 Dados | Last.fm · MusicBrainz | scrobbles, capas e fotos |
+
+```text
+capsula_sonora/
+├── src/                  🎨 frontend (React)
+│   ├── components/       gráficos, cards, filtros, one page
+│   ├── lib/              DuckDB, formatação, imagens, usuário dinâmico
+│   └── store/            estado global
+├── server/               ⚙️ backend (Express)
+│   ├── src/              API, sincronização e integração Last.fm
+│   └── schema.sql        tabelas (criadas automaticamente)
+├── .env.example          🔑 modelo de variáveis
+└── package.json
+```
+
+---
+
+## 🚀 Rodar localmente
+
+**Você vai precisar de:** Node.js 20+ e MySQL 8 (ou MariaDB).
 
 ```bash
+# 1. Clonar
+git clone https://github.com/gabrriela07/capsula_sonora_caseira.git
+cd capsula_sonora_caseira
+
+# 2. Instalar dependências (site + servidor)
 npm install
+npm install --prefix server
+
+# 3. Configurar variáveis
+cp .env.example server/.env
+```
+
+Preencha o `server/.env` com sua chave do Last.fm ([crie aqui](https://www.last.fm/api/account/create)) e os dados do MySQL. Depois:
+
+```bash
+# 4. Um único comando sobe a API e o site juntos
 npm run dev
 ```
 
-Abra o endereço exibido pelo Vite, normalmente <http://localhost:5173>.
+Abra **http://localhost:5173/?user=seu_usuario** e pronto. 🎉
 
-Para validar a versão de produção:
+> No terminal, `[API]` aparece em amarelo e `[SITE]` em ciano. Se um cair, o outro para junto.
+
+---
+
+## ☁️ Publicar de graça
+
+| Serviço | Para quê | Plano |
+|---|---|---|
+| [Render](https://render.com) | site + API | Free |
+| [Aiven](https://aiven.io) | MySQL na nuvem | Free |
+
+**No Render, crie um *Web Service* ligado ao repositório:**
+
+| Campo | Valor |
+|---|---|
+| Build command | `npm install && npm run build && npm install --prefix server` |
+| Start command | `npm run server` |
+
+**Em *Environment*, cadastre:**
+
+| Variável | | Descrição |
+|---|:---:|---|
+| `LASTFM_API_KEY` | ✅ | chave da API do Last.fm |
+| `MYSQL_HOST` · `MYSQL_PORT` · `MYSQL_USER` · `MYSQL_PASSWORD` | ✅ | conexão do banco |
+| `MYSQL_DATABASE` | ✅ | nome do banco (no Aiven: `defaultdb`) |
+| `MYSQL_SSL` | ✅ | `true` no Aiven |
+| `VITE_LASTFM_API_KEY` | ⭐ | capas e fotos no painel |
+| `LASTFM_USER` | ➖ | usuário aberto quando o link não informa outro |
+| `ALLOWED_USERS` | ➖ | limita a usuários específicos: `ana,joao` |
+| `APP_PASSWORD` | ➖ | pede senha para abrir o site |
+| `SYNC_INTERVAL_MINUTES` | ➖ | intervalo de sincronização (padrão `60`) |
+
+<sub>✅ obrigatória · ⭐ recomendada · ➖ opcional. Não cadastre `PORT`: o Render define sozinho.</sub>
+
+> 😴 No plano gratuito, o Render dorme após 15 minutos sem acesso. O primeiro acesso depois disso leva cerca de 1 minuto e já sincroniza as músicas novas.
+
+---
+
+## 🔌 API
+
+Todas as rotas aceitam `?user=nome`. Sem ele, usam o `LASTFM_USER`.
+
+| Rota | O que faz |
+|---|---|
+| `GET /api/config` | usuário padrão da instalação |
+| `GET /api/status` | totais e progresso; inicia a primeira carga de um usuário novo |
+| `POST /api/sync` | força uma sincronização |
+| `GET /api/history.csv` | histórico completo do usuário |
 
 ```bash
-npm run build
-npm run preview
+# sincronização manual (dentro de server/)
+npm run sync -- seu_usuario
 ```
 
-## Teste rápido com `sample.csv`
+---
 
-O arquivo `public/sample.csv` contém **2.000 reproduções fictícias** distribuídas entre 2012 e 2025.
+## 🔒 Privacidade
 
-1. Inicie o app.
-2. Na tela inicial, clique em **Baixar sample.csv** ou selecione diretamente `public/sample.csv` no seletor.
-3. O mapeamento deve reconhecer automaticamente as cinco colunas.
-4. Clique em **Abrir dashboard**.
+- A cápsula mostra apenas dados que **já são públicos** no seu perfil do Last.fm.
+- Qualquer pessoa com o link pode abrir a cápsula de um usuário público. Para limitar, use `ALLOWED_USERS` ou `APP_PASSWORD`.
+- Variáveis `VITE_` ficam visíveis no navegador. **Nunca** coloque senhas ou o *shared secret* do Last.fm nelas.
+- O arquivo `.env` nunca vai para o GitHub.
 
-## Como carregar seus dados
+---
 
-1. Exporte ou consolide seu histórico em um arquivo `.csv` ou `.parquet`.
-2. Arraste o arquivo para a área indicada ou clique nela.
-3. O DuckDB lê somente o schema primeiro.
-4. Revise o mapeamento detectado e corrija qualquer campo necessário.
-5. Clique em **Abrir dashboard**. A limpeza/materialização pode levar alguns instantes em arquivos grandes.
+<div align="center">
 
-O CSV deve possuir cabeçalho. Codificação UTF-8 é recomendada. `read_csv_auto` detecta delimitador e aspas automaticamente e amostra até 200 mil linhas para inferir a estrutura; os valores são lidos inicialmente como texto para tornar o mapeamento mais robusto.
+### 🎶 Viva a música! 
 
-## Mapeamento de colunas
+<br />
 
-Campos obrigatórios:
+Feito com ❤️ e muitos scrobbles por **[/gabrriela07](https://github.com/gabrriela07)**
 
-| Campo interno | Nomes reconhecidos automaticamente |
-|---|---|
-| Data/hora | `ts`, `timestamp`, `played_at`, `datetime`, `date`, `endtime` |
-| Artista | `master_metadata_album_artist_name`, `artist`, `artist_name`, `album_artist` |
-| Música | `master_metadata_track_name`, `track`, `track_name`, `song`, `title` |
+<sub>Se a cápsula te fez sorrir, deixe uma ⭐ no repositório!</sub>
 
-Campos opcionais:
-
-| Campo interno | Nomes reconhecidos automaticamente |
-|---|---|
-| Álbum | `master_metadata_album_album_name`, `album`, `album_name` |
-| Duração em milissegundos | `ms_played`, `duration`, `duration_ms`, `milliseconds_played`, `played_ms` |
-
-A coluna genérica `duration` é interpretada como **milissegundos**. Se seu arquivo armazena segundos, converta para milissegundos antes de carregar.
-
-Sem álbum, o app usa “Sem álbum”. Sem duração, cada linha válida conta como uma reprodução, o filtro mínimo é desativado e os indicadores de tempo ficam indisponíveis. O app não inventa uma duração média.
-
-### Limpeza aplicada
-
-- Conversão tolerante da data/hora para `TIMESTAMP`.
-- Remoção de linhas com data inválida, artista vazio ou música vazia.
-- Duração inválida vira zero; duração negativa é limitada a zero.
-- Remoção de duplicatas exatas pelo conjunto data/hora + artista + música + álbum + duração.
-- Aplicação do mínimo de duração durante as consultas, não na importação; assim ele pode ser alterado sem recarregar o arquivo.
-
-## Filtros e comparação
-
-Todos os gráficos usam o mesmo intervalo, artista, álbum, ano/mês e duração mínima. “Último mês”, “Últimos 3 meses”, “Este ano” e “Ano passado” usam como referência a **data mais recente disponível no arquivo**, o que também torna históricos antigos fáceis de testar.
-
-Cada percentual de KPI compara o período selecionado com o intervalo imediatamente anterior de igual quantidade de dias. Filtros de artista, álbum e duração permanecem iguais na comparação.
-
-A descoberta considera a primeira aparição do artista no histórico completo compatível com os filtros de artista/álbum/duração, e então verifica se essa primeira data caiu no período selecionado.
-
-## Gerar a Cápsula Sonora
-
-1. Ajuste os filtros globais para o período desejado.
-2. Clique em **Gerar Cápsula** no cabeçalho.
-3. Confira a prévia.
-4. Opcionalmente escolha uma imagem de capa; ela é lida localmente. Sem imagem, o app usa arte procedural com a paleta do projeto.
-5. Clique em **Baixar PNG** ou **Copiar imagem**.
-
-A exportação usa um cartão de 540 × 960 CSS pixels com `pixelRatio: 2`, resultando em **1080 × 1920 px**. A cópia depende da permissão de clipboard do navegador e de contexto seguro (`localhost` é aceito); o download continua disponível como alternativa.
-
-## Paleta e personalização
-
-Os tokens estão em `tailwind.config.js` e as variáveis CSS em `src/index.css`:
-
-| Token | Cor |
-|---|---|
-| `carbon` / `--carbon-black` | `#171717` |
-| `graphite` / `--graphite` | `#2D2D30` |
-| `slime` / `--slime-lime` | `#A3E635` |
-| `petal` / `--petal-pink` | `#D162A4` |
-| `banana` / `--banana-cream` | `#FAEE66` |
-
-Para mudar espaçamentos e componentes reutilizáveis, edite a camada `@layer components` em `src/index.css`. As cores dos gráficos ficam em `src/lib/chartTheme.ts`. A arte procedural está em `src/components/capsule/ProceduralCover.tsx`.
-
-## Estrutura principal
-
-```text
-src/
-├── components/
-│   ├── capsule/       # cartão, modal e exportação
-│   ├── charts/        # gráficos e heatmaps
-│   ├── dashboard/     # cabeçalho, KPIs, rankings
-│   └── filters/       # filtros globais
-├── hooks/             # consulta e debounce
-├── lib/
-│   ├── duckdb.ts      # ingestão, normalização e SQL
-│   ├── format.ts      # pt-BR e duração
-│   └── columnDetection.ts
-├── store/             # Zustand
-└── types/             # contratos TypeScript
-```
-
-## Decisões e limites conhecidos
-
-- O arquivo é processado em memória pelo navegador. Para históricos excepcionalmente grandes, feche abas pesadas e prefira Parquet.
-- Os campos de artista e álbum sugerem os 500 itens com mais reproduções para manter a interface leve, mas aceitam qualquer valor digitado; rankings e métricas consultam todo o arquivo.
-- O bump chart usa os cinco artistas líderes do período e mostra a posição real deles entre todos os artistas em cada agrupamento.
-- O acumulado é agregado por mês para manter o gráfico fluido em históricos longos.
-- A sequência considera dias civis consecutivos no timestamp já interpretado pelo DuckDB. Timestamps com fuso (`Z`/offset) são aceitos; o app não tenta adivinhar ou substituir o fuso original.
-
-## Scripts
-
-- `npm run dev` — desenvolvimento
-- `npm run typecheck` — TypeScript
-- `npm run build` — build de produção
-- `npm run preview` — prévia do build
+</div>
